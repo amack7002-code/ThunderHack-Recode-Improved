@@ -163,7 +163,7 @@ public class ModuleManager implements IManager {
     public static MemoryHud memoryHud = new MemoryHud();
     public static Companion companion = new Companion();
     public static AntiCrash antiCrash = new AntiCrash();
-    public static AutoDrain AutoDrain = new AutoDrain();
+    public static AutoDrain autoDrain = new AutoDrain();
     public static AutoGear autoGear = new AutoGear();
     public static ViewLock viewLock = new ViewLock();
     public static Velocity velocity = new Velocity();
