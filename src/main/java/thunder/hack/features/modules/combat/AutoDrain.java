@@ -3,7 +3,7 @@ package thunder.hack.features.modules.combat;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
-import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.gui.DrawContext;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemStack;
@@ -107,11 +107,8 @@ public final class AutoDrain extends Module {
             for (int y = -radius; y <= radius; y++) {
                 for (int z = -radius; z <= radius; z++) {
                     BlockPos pos = playerPos.add(x, y, z);
-                    // Check if it's a water source block (not flowing water)
                     if (mc.world.getBlockState(pos).getBlock() == Blocks.WATER) {
-                        // Check if it's a source block (not flowing)
                         if (mc.world.getBlockState(pos).getFluidState().isStill()) {
-                            // Check if it's not part of a natural lake/ocean by checking surroundings
                             if (isManMadeWaterSource(pos)) {
                                 waterSources.put(pos, System.currentTimeMillis());
                             }
@@ -123,8 +120,6 @@ public final class AutoDrain extends Module {
     }
 
     private boolean isManMadeWaterSource(BlockPos pos) {
-        // Check if the water is likely placed by a player rather than natural generation
-        // Check if there's a solid block underneath
         BlockPos below = pos.down();
         BlockPos above = pos.up();
         BlockPos north = pos.north();
@@ -132,8 +127,6 @@ public final class AutoDrain extends Module {
         BlockPos east = pos.east();
         BlockPos west = pos.west();
         
-        // Natural water bodies usually have water on all sides at the same level
-        // or are part of a larger body of water
         boolean hasWaterAbove = mc.world.getBlockState(above).getBlock() == Blocks.WATER;
         boolean hasWaterNorth = mc.world.getBlockState(north).getBlock() == Blocks.WATER;
         boolean hasWaterSouth = mc.world.getBlockState(south).getBlock() == Blocks.WATER;
@@ -146,16 +139,11 @@ public final class AutoDrain extends Module {
         if (hasWaterEast) waterNeighbors++;
         if (hasWaterWest) waterNeighbors++;
         
-        // If there's water above, it's likely part of a larger body (ocean/lake)
         if (hasWaterAbove) {
             return false;
         }
         
-        // If the water has solid block below and not too many water neighbors,
-        // it's likely player placed
         boolean hasSolidBelow = !mc.world.getBlockState(below).isAir() && mc.world.getBlockState(below).getBlock() != Blocks.WATER;
-        
-        // Also check if there's any non-water blocks around that would indicate artificial placement
         boolean hasNonWaterNeighbor = !hasWaterNorth || !hasWaterSouth || !hasWaterEast || !hasWaterWest;
         
         return hasSolidBelow && waterNeighbors <= 2 && hasNonWaterNeighbor;
@@ -181,13 +169,12 @@ public final class AutoDrain extends Module {
         return nearest;
     }
 
-    public void onRender3D(MatrixStack stack) {
-        // Render water sources
+    public void onRender3D(DrawContext context) {
         waterSources.forEach((pos, time) -> {
             if (System.currentTimeMillis() - time > 10000) {
                 waterSources.remove(pos);
             } else {
-                Render3DEngine.drawFilledBox(stack, new Box(pos), Render2DEngine.injectAlpha(0xFF00FF, 50));
+                Render3DEngine.drawFilledBox(context, new Box(pos), Render2DEngine.injectAlpha(0xFF00FF, 50));
                 Render3DEngine.drawBoxOutline(new Box(pos), 0xFF00FF, 2);
             }
         });
@@ -198,14 +185,14 @@ public final class AutoDrain extends Module {
             } else {
                 switch (renderMode.getValue()) {
                     case Fade -> {
-                        Render3DEngine.drawFilledBox(stack, new Box(pos), Render2DEngine.injectAlpha(renderFillColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))));
+                        Render3DEngine.drawFilledBox(context, new Box(pos), Render2DEngine.injectAlpha(renderFillColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))));
                         Render3DEngine.drawBoxOutline(new Box(pos), Render2DEngine.injectAlpha(renderLineColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))), renderLineWidth.getValue());
                     }
                     case Decrease -> {
                         float scale = 1 - (float) (System.currentTimeMillis() - time) / 500;
-                        Box box = new Box(pos.getX(), pos.getY(), pos.getZ(), pos.getX(), pos.getY(), pos.getZ());
+                        Box box = new Box(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1);
 
-                        Render3DEngine.drawFilledBox(stack, box.shrink(scale, scale, scale).offset(0.5 + scale * 0.5, 0.5 + scale * 0.5, 0.5 + scale * 0.5), Render2DEngine.injectAlpha(renderFillColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))));
+                        Render3DEngine.drawFilledBox(context, box.shrink(scale, scale, scale).offset(0.5 + scale * 0.5, 0.5 + scale * 0.5, 0.5 + scale * 0.5), Render2DEngine.injectAlpha(renderFillColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))));
                         Render3DEngine.drawBoxOutline(box.shrink(scale, scale, scale).offset(0.5 + scale * 0.5, 0.5 + scale * 0.5, 0.5 + scale * 0.5), renderLineColor.getValue().getColorObject(), renderLineWidth.getValue());
                     }
                 }
@@ -244,21 +231,17 @@ public final class AutoDrain extends Module {
             return;
         }
 
-        // Check if we have an empty bucket
         int emptyBucketSlot = getEmptyBucketSlot();
         if (emptyBucketSlot == -1) {
-            // No empty bucket, try to use a water bucket and place it near the source
             handleWaterPlacement(targetBlock);
             return;
         }
 
-        // Pick up water with empty bucket
         InventoryUtility.saveSlot();
         if (pickupWater(currentWaterSource, emptyBucketSlot)) {
             renderPoses.put(currentWaterSource, System.currentTimeMillis());
             delay = placeDelay.getValue();
             inactivityTimer.reset();
-            // Remove the water source after picking it up
             waterSources.remove(currentWaterSource);
             currentWaterSource = null;
         }
@@ -271,10 +254,8 @@ public final class AutoDrain extends Module {
     }
 
     private boolean pickupWater(BlockPos waterPos, int slot) {
-        // Switch to empty bucket
         mc.player.getInventory().selectedSlot = slot;
         
-        // Interact with the water source to pick it up
         Direction side = Direction.UP;
         BlockHitResult hitResult = new BlockHitResult(
             waterPos.toCenterPos(),
@@ -309,10 +290,8 @@ public final class AutoDrain extends Module {
             return;
         }
 
-        // Check if there's a water source nearby that we can place cobweb on
         BlockPos nearestWater = getNearestWaterSource();
         if (nearestWater != null && mc.player.squaredDistanceTo(nearestWater.getX() + 0.5, nearestWater.getY() + 0.5, nearestWater.getZ() + 0.5) < range.getValue() * range.getValue()) {
-            // Place cobweb on the water source
             InventoryUtility.saveSlot();
             if (InteractionUtility.placeBlock(nearestWater, rotate.getValue(), interact.getValue(), placeMode.getValue(), getSlot(), false, true)) {
                 renderPoses.put(nearestWater, System.currentTimeMillis());
@@ -322,7 +301,6 @@ public final class AutoDrain extends Module {
             }
             InventoryUtility.returnSlot();
         } else {
-            // Normal cobweb placement around target
             InventoryUtility.saveSlot();
             if (placeTiming.getValue() == PlaceTiming.Default) {
                 int placed = 0;
