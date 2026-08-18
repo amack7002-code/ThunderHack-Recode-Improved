@@ -62,7 +62,7 @@ public class CreditsScreen extends Screen {
     public void render(@NotNull DrawContext context, int mouseX, int mouseY, float delta) {
         float halfOfWidth = mc.getWindow().getScaledWidth() / 2f;
         float halfOfHeight = mc.getWindow().getScaledHeight() / 2f;
-        float globalOffset = (contributors.size() * 150) / 2f;
+        float globalOffset = (contributors.size() * 30) / 2f;
 
         //  Render2DEngine.drawMainMenuShader(context.getMatrices(), 0, 0, halfOfWidth * 2f, halfOfHeight * 2);
         renderBackground(context, mouseX, mouseY, delta);
@@ -103,7 +103,7 @@ public class CreditsScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         float halfOfWidth = mc.getWindow().getScaledWidth() / 2f;
         float halfOfHeight = mc.getWindow().getScaledHeight() / 2f;
-        float globalOffset = (contributors.size() * 150) / 2f;
+        float globalOffset = (contributors.size() * 30) / 2f;
         int offset = 0;
         for (Contributor contributor : contributors) {
             float cX = (float) (halfOfWidth + offset - globalOffset + Render2DEngine.interpolate(scroll, scroll + 1, Render3DEngine.getTickDelta()));
@@ -183,7 +183,7 @@ public class CreditsScreen extends Screen {
     public void tick() {
         scroll -= SCROLL_SPEED;
 
-        if (scroll <= -(contributors.size() * 150) + 100)
+        if (scroll <= -(contributors.size() * 30) + 100)
             scroll = 0;
     }
 }

@@ -7,7 +7,7 @@ import thunder.hack.features.modules.Module;
 
 public class XCarry extends Module {
     public XCarry() {
-        super("XCarry", Category.PLAYER);
+        super("XtraCarry", Category.PLAYER);
     }
 
     @EventHandler
