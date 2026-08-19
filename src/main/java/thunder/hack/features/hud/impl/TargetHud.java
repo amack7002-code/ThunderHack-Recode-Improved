@@ -193,9 +193,8 @@ public class TargetHud extends HudElement {
         Render2DEngine.renderTexture(context.getMatrices(), getPosX() + 3.5f + hurtPercent, getPosY() + 3.5f + hurtPercent, 40 - hurtPercent * 2, 40 - hurtPercent * 2, 40, 8, 8, 8, 64, 64);
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
-        FontRenderers.modules.drawString(context.getMatrices(), ModuleManager.media.isEnabled() ? "Protected " : ModuleManager.nameProtect.isEnabled() && target == mc.player ? NameProtect.getCustomName() : target.getName().getString(), getPosX() + 50, getPosY() + 7, -1);
         FontRenderers.modules.drawCenteredString(context.getMatrices(), hpMode.getValue() == HPmodeEn.HP ? String.valueOf(Math.round(10.0 * getHealth()) / 10.0) : (((Math.round(10.0 * getHealth()) / 10.0) / 20f) * 100 + "%"), getPosX() + 81f, getPosY() + 34f, -1);
-
+        FontRenderers.modules.drawString(context.getMatrices(), ModuleManager.nameProtect.isEnabled() ? "Protected" : target.getName().getString(), getPosX() + 3, getPosY() + 3, -1);
 
         if (target instanceof PlayerEntity pe) {
             celestialArmor(context, pe, getPosX(), getPosY());
@@ -254,13 +253,9 @@ public class TargetHud extends HudElement {
             Render2DEngine.renderRoundedGradientRect(context.getMatrices(), HudEditor.getColor(270), HudEditor.getColor(0), HudEditor.getColor(0), HudEditor.getColor(270), getPosX() + 48, getPosY() + 32, (int) MathUtility.clamp((85 * (health / target.getMaxHealth())), 8, 85), 11, 4f);
         }
 
-        FontRenderers.sf_bold.drawCenteredString(context.getMatrices(), hpMode.getValue() == HPmodeEn.HP ? String.valueOf(Math.round(10.0 * getHealth()) / 10.0) : (((Math.round(10.0 * getHealth()) / 10.0) / 20f) * 100 + "%"), getPosX() + 92f, getPosY() + 35f,
-                Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
-        //
-
         //Имя
-        FontRenderers.sf_bold.drawString(context.getMatrices(), ModuleManager.media.isEnabled() ? "Protected " : ModuleManager.nameProtect.isEnabled() && target == mc.player ? NameProtect.getCustomName() : target.getName().getString(), getPosX() + 48, getPosY() + 7,
-                Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
+        FontRenderers.sf_bold.drawString(context.getMatrices(), ModuleManager.nameProtect.isEnabled() ? "Protected" : target.getName().getString(), getPosX() + 48, getPosY() + 7, Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
+                Render2DEngine.applyOpacity(Colors.WHITE, animationFactor);
 
         if (target instanceof PlayerEntity) {
             RenderSystem.setShaderColor(1f, 1f, 1f, (float) MathUtility.clamp(animation.getAnimationd(), 0, 1f));
@@ -336,7 +331,7 @@ public class TargetHud extends HudElement {
         //
 
         //Имя
-        FontRenderers.sf_bold_mini.drawString(context.getMatrices(), ModuleManager.media.isEnabled() ? "Protected " : ModuleManager.nameProtect.isEnabled() && target == mc.player ? NameProtect.getCustomName() : target.getName().getString(), getPosX() + 38, getPosY() + 5, Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
+        FontRenderers.sf_bold.drawString(context.getMatrices(), ModuleManager.nameProtect.isEnabled() ? "Protected" : target.getName().getString(), getPosX() + 55, getPosY() + 5, Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
 
         if (target instanceof PlayerEntity) {
             //Броня
@@ -469,7 +464,7 @@ public class TargetHud extends HudElement {
         FontRenderers.sf_bold.drawCenteredString(context.getMatrices(), hpMode.getValue() == HPmodeEn.HP ? String.valueOf(Math.round(10.0 * getHealth()) / 10.0) : (int) (((Math.round(10.0 * health) / 10.0) / 20f) * 100) + "%", getPosX() + 102, getPosY() + 24f, Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
 
         //Имя ебыря
-        FontRenderers.sf_bold.drawString(context.getMatrices(), ModuleManager.media.isEnabled() ? "Protected " : ModuleManager.nameProtect.isEnabled() && target == mc.player ? NameProtect.getCustomName() : target.getName().getString(), getPosX() + 55, getPosY() + 5, Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
+        FontRenderers.sf_bold.drawString(context.getMatrices(), ModuleManager.nameProtect.isEnabled() ? "Protected" : target.getName().getString(), getPosX() + 55, getPosY() + 5, Render2DEngine.applyOpacity(Colors.WHITE, animationFactor));
 
         if (target instanceof PlayerEntity) {
             //Броня

@@ -14,7 +14,7 @@ import thunder.hack.utility.render.TextureStorage;
 public class MixinSkinTextures {
     @Inject(method = "texture", at = @At("HEAD"), cancellable = true)
     public void getSkinTextureHook(CallbackInfoReturnable<Identifier> cir) {
-        if (ModuleManager.media.isEnabled() && Media.skinProtect.getValue()) {
+        if (false) { // if (ModuleManager.media.isEnabled() && Media.skinProtect.getValue()) {
             cir.setReturnValue(TextureStorage.sunRiseSkin);
         }
     }

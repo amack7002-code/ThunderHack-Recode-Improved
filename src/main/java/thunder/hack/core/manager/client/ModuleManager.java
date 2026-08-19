@@ -242,13 +242,14 @@ public class ModuleManager implements IManager {
     public static NoPush noPush = new NoPush();
     public static UnHook unHook = new UnHook();
     public static Avoid avoid = new Avoid();
-    public static Timer timer = new Timer();
+    public static thunder.hack.features.modules.movement.Timer timer = new thunder.hack.features.modules.movement.Timer();
     public static Regen regen = new Regen();
     public static Speed speed = new Speed();
     public static Reach reach = new Reach();
     public static Radar radar = new Radar();
     public static Nuker nuker = new Nuker();
-    public static Media media = new Media();
+    // public static Media media = new Media();
+    public static Media media = null;
     public static Ghost ghost = new Ghost();
     public static Chams chams = new Chams();
     public static Blink blink = new Blink();

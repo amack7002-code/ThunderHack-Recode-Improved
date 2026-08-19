@@ -1,75 +1,77 @@
 package thunder.hack.features.modules.combat;
 
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.block.Block;
+
+import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
-import net.minecraft.world.RaycastContext;
-import thunder.hack.core.Managers;
+import net.minecraft.util.math.Vec3d;
+
 import thunder.hack.events.impl.EventTick;
 import thunder.hack.features.modules.Module;
-import thunder.hack.features.modules.client.HudEditor;
 import thunder.hack.setting.Setting;
-import thunder.hack.setting.impl.ColorSetting;
-import thunder.hack.setting.impl.SettingGroup;
 import thunder.hack.utility.Timer;
-import thunder.hack.utility.player.InteractionUtility;
 import thunder.hack.utility.player.InventoryUtility;
-import thunder.hack.utility.render.Render2DEngine;
-import thunder.hack.utility.render.Render3DEngine;
-import org.jetbrains.annotations.Nullable;
-import thunder.hack.core.manager.player.CombatManager;
+import thunder.hack.utility.player.InteractionUtility;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static thunder.hack.utility.player.InteractionUtility.squaredDistanceFromEyes;
-
 public final class AutoDrain extends Module {
-    private final Setting<DrainMode> drainMode = new Setting<>("DrainMode", DrainMode.Cobweb);
-    private final Setting<CombatManager.TargetBy> targetBy = new Setting<>("Target By", CombatManager.TargetBy.Distance);
-    private final Setting<Boolean> targetMovingPlayers = new Setting<>("MovingPlayers", false);
-    private final Setting<Integer> range = new Setting<>("Range", 5, 1, 7);
-    private final Setting<Integer> placeWallRange = new Setting<>("WallRange", 5, 1, 7);
-    private final Setting<PlaceTiming> placeTiming = new Setting<>("PlaceTiming", PlaceTiming.Default);
-    private final Setting<Integer> blocksPerTick = new Setting<>("Block/Tick", 8, 1, 12, v -> placeTiming.getValue() == PlaceTiming.Default);
-    private final Setting<Integer> placeDelay = new Setting<>("Delay/Place", 3, 0, 10);
-    private final Setting<InteractionUtility.Interact> interact = new Setting<>("Interact", InteractionUtility.Interact.Strict);
-    private final Setting<InteractionUtility.PlaceMode> placeMode = new Setting<>("PlaceMode", InteractionUtility.PlaceMode.Normal);
-    private final Setting<InteractionUtility.Rotate> rotate = new Setting<>("Rotate", InteractionUtility.Rotate.None);
-    private final Setting<SettingGroup> selection = new Setting<>("Selection", new SettingGroup(false, 0));
-    private final Setting<Boolean> head = new Setting<>("Head", true).addToGroup(selection);
-    private final Setting<Boolean> leggs = new Setting<>("Leggs", true).addToGroup(selection);
-    private final Setting<Boolean> surround = new Setting<>("Surround", true).addToGroup(selection);
-    private final Setting<Boolean> upperSurround = new Setting<>("UpperSurround", false).addToGroup(selection);
-    private final Setting<SettingGroup> renderCategory = new Setting<>("Render", new SettingGroup(false, 0));
-    private final Setting<RenderMode> renderMode = new Setting<>("Render Mode", RenderMode.Fade).addToGroup(renderCategory);
-    private final Setting<ColorSetting> renderFillColor = new Setting<>("Render Fill Color", new ColorSetting(HudEditor.getColor(0))).addToGroup(renderCategory);
-    private final Setting<ColorSetting> renderLineColor = new Setting<>("Render Line Color", new ColorSetting(HudEditor.getColor(0))).addToGroup(renderCategory);
-    private final Setting<Integer> renderLineWidth = new Setting<>("Render Line Width", 2, 1, 5).addToGroup(renderCategory);
-    private final Setting<Integer> effectDurationMs = new Setting<>("Effect Duration (MS)", 500, 0, 10000).addToGroup(renderCategory);
-    private final Setting<Integer> waterSearchRadius = new Setting<>("WaterSearchRadius", 10, 3, 20);
 
-    private final ArrayList<BlockPos> sequentialBlocks = new ArrayList<>();
+    private final Setting<DrainMode> drainMode =
+            new Setting<>("Mode", DrainMode.Cobweb);
+
+    private final Setting<Integer> range =
+            new Setting<>("Range", 5, 1, 7);
+
+    private final Setting<Integer> searchRadius =
+            new Setting<>("Search Radius", 8, 2, 16);
+
+    private final Setting<Integer> delaySetting =
+            new Setting<>("Delay", 2, 0, 20);
+
+    private final Setting<Boolean> prioritizeCobweb =
+            new Setting<>("Prioritize Cobweb", false);
+
+    /*
+     * Current water target.
+     */
+    private BlockPos currentWater;
+
+    /*
+     * Cobweb target.
+     */
+    private BlockPos currentCobwebPlacement;
+
+    private BlockPos cobwebSupport;
+
+    private Direction cobwebFace;
+
+    /*
+     * Prevents repeatedly attacking the same block.
+     */
+    private final Map<BlockPos, Long> attempted =
+            new ConcurrentHashMap<>();
+
+    private int delay;
+
+    /*
+     * When >= 0, we have temporarily switched to this slot
+     * and haven't restored the previous slot yet.
+     */
+    private int pendingRestoreSlot = -1;
+
     public static Timer inactivityTimer = new Timer();
-
-    private final Map<BlockPos, Long> renderPoses = new ConcurrentHashMap<>();
-    private final Map<BlockPos, Long> waterSources = new ConcurrentHashMap<>();
-
-    private int delay = 0;
-    private PlayerEntity target;
-    private BlockPos currentWaterSource;
 
     public AutoDrain() {
         super("AutoDrain", Category.COMBAT);
@@ -77,371 +79,799 @@ public final class AutoDrain extends Module {
 
     @Override
     public void onEnable() {
-        sequentialBlocks.clear();
-        renderPoses.clear();
-        waterSources.clear();
-        target = null;
-        currentWaterSource = null;
-        findWaterSources();
+
+        attempted.clear();
+
+        currentWater = null;
+
+        currentCobwebPlacement = null;
+        cobwebSupport = null;
+        cobwebFace = null;
+
+        delay = 0;
+
+        pendingRestoreSlot = -1;
+
+        findWater();
     }
 
     @Override
-    protected boolean needNewTarget() {
-        return target == null
-                || target.distanceTo(mc.player) > range.getValue()
-                || target.getHealth() + target.getAbsorptionAmount() <= 0
-                || target.isDead();
-    }
+    public void onDisable() {
 
-    @Override
-    protected @Nullable PlayerEntity getTarget() {
-        return Managers.COMBAT.getTarget(range.getValue(), targetBy.getValue(), p -> p.getVelocity().lengthSquared() < 0.08 || targetMovingPlayers.getValue());
-    }
+        /*
+         * Restore the previous slot if we still have one.
+         */
+        restorePendingSlot();
 
-    private void findWaterSources() {
-        waterSources.clear();
-        int radius = waterSearchRadius.getValue();
-        BlockPos playerPos = mc.player.getBlockPos();
-        
-        for (int x = -radius; x <= radius; x++) {
-            for (int y = -radius; y <= radius; y++) {
-                for (int z = -radius; z <= radius; z++) {
-                    BlockPos pos = playerPos.add(x, y, z);
-                    if (mc.world.getBlockState(pos).getBlock() == Blocks.WATER) {
-                        if (mc.world.getBlockState(pos).getFluidState().isStill()) {
-                            if (isManMadeWaterSource(pos)) {
-                                waterSources.put(pos, System.currentTimeMillis());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+        attempted.clear();
 
-    private boolean isManMadeWaterSource(BlockPos pos) {
-        BlockPos below = pos.down();
-        BlockPos above = pos.up();
-        BlockPos north = pos.north();
-        BlockPos south = pos.south();
-        BlockPos east = pos.east();
-        BlockPos west = pos.west();
-        
-        boolean hasWaterAbove = mc.world.getBlockState(above).getBlock() == Blocks.WATER;
-        boolean hasWaterNorth = mc.world.getBlockState(north).getBlock() == Blocks.WATER;
-        boolean hasWaterSouth = mc.world.getBlockState(south).getBlock() == Blocks.WATER;
-        boolean hasWaterEast = mc.world.getBlockState(east).getBlock() == Blocks.WATER;
-        boolean hasWaterWest = mc.world.getBlockState(west).getBlock() == Blocks.WATER;
-        
-        int waterNeighbors = 0;
-        if (hasWaterNorth) waterNeighbors++;
-        if (hasWaterSouth) waterNeighbors++;
-        if (hasWaterEast) waterNeighbors++;
-        if (hasWaterWest) waterNeighbors++;
-        
-        if (hasWaterAbove) {
-            return false;
-        }
-        
-        boolean hasSolidBelow = !mc.world.getBlockState(below).isAir() && mc.world.getBlockState(below).getBlock() != Blocks.WATER;
-        boolean hasNonWaterNeighbor = !hasWaterNorth || !hasWaterSouth || !hasWaterEast || !hasWaterWest;
-        
-        return hasSolidBelow && waterNeighbors <= 2 && hasNonWaterNeighbor;
-    }
+        currentWater = null;
 
-    private BlockPos getNearestWaterSource() {
-        if (waterSources.isEmpty()) {
-            findWaterSources();
-            return null;
-        }
-        
-        BlockPos nearest = null;
-        double nearestDist = Double.MAX_VALUE;
-        
-        for (BlockPos pos : waterSources.keySet()) {
-            double dist = mc.player.squaredDistanceTo(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-            if (dist < nearestDist) {
-                nearestDist = dist;
-                nearest = pos;
-            }
-        }
-        
-        return nearest;
-    }
+        currentCobwebPlacement = null;
+        cobwebSupport = null;
+        cobwebFace = null;
 
-    public void onRender3D(DrawContext context) {
-        waterSources.forEach((pos, time) -> {
-            if (System.currentTimeMillis() - time > 10000) {
-                waterSources.remove(pos);
-            } else {
-                Render3DEngine.drawFilledBox(context, new Box(pos), Render2DEngine.injectAlpha(0xFF00FF, 50));
-                Render3DEngine.drawBoxOutline(new Box(pos), 0xFF00FF, 2);
-            }
-        });
-        
-        renderPoses.forEach((pos, time) -> {
-            if (System.currentTimeMillis() - time > effectDurationMs.getValue()) {
-                renderPoses.remove(pos);
-            } else {
-                switch (renderMode.getValue()) {
-                    case Fade -> {
-                        Render3DEngine.drawFilledBox(context, new Box(pos), Render2DEngine.injectAlpha(renderFillColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))));
-                        Render3DEngine.drawBoxOutline(new Box(pos), Render2DEngine.injectAlpha(renderLineColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))), renderLineWidth.getValue());
-                    }
-                    case Decrease -> {
-                        float scale = 1 - (float) (System.currentTimeMillis() - time) / 500;
-                        Box box = new Box(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1);
-
-                        Render3DEngine.drawFilledBox(context, box.shrink(scale, scale, scale).offset(0.5 + scale * 0.5, 0.5 + scale * 0.5, 0.5 + scale * 0.5), Render2DEngine.injectAlpha(renderFillColor.getValue().getColorObject(), (int) (100f * (1f - ((System.currentTimeMillis() - time) / 500f)))));
-                        Render3DEngine.drawBoxOutline(box.shrink(scale, scale, scale).offset(0.5 + scale * 0.5, 0.5 + scale * 0.5, 0.5 + scale * 0.5), renderLineColor.getValue().getColorObject(), renderLineWidth.getValue());
-                    }
-                }
-            }
-        });
+        delay = 0;
+        pendingRestoreSlot = -1;
     }
 
     @EventHandler
-    public void onTick(EventTick e) {
-        if (needNewTarget()) {
-            target = getTarget();
-            if (target == null) return;
-        }
+    public void onTick(EventTick event) {
 
-        if (drainMode.getValue() == DrainMode.WaterBucket) {
-            handleWaterDrain();
-        } else if (drainMode.getValue() == DrainMode.Cobweb) {
-            handleCobwebPlace();
-        }
-    }
+        if (mc.player == null || mc.world == null)
+            return;
 
-    private void handleWaterDrain() {
-        if (currentWaterSource == null || !isWaterSourceStillValid(currentWaterSource)) {
-            currentWaterSource = getNearestWaterSource();
-            if (currentWaterSource == null) {
-                findWaterSources();
-                return;
-            }
-        }
+        /*
+         * Restore a slot from a previous interaction.
+         *
+         * We intentionally do this on a later tick instead of
+         * immediately after sending the interaction.
+         */
+        if (pendingRestoreSlot != -1 && delay == 0) {
 
-        BlockPos targetBlock = getSequentialPos();
-        if (targetBlock == null) return;
+            restorePendingSlot();
+
+            /*
+             * Don't perform another interaction on the same tick.
+             */
+            return;
+        }
 
         if (delay > 0) {
             delay--;
             return;
         }
 
-        int emptyBucketSlot = getEmptyBucketSlot();
-        if (emptyBucketSlot == -1) {
-            handleWaterPlacement(targetBlock);
+        /*
+         * ============================================================
+         * WATER MODE (DISABLED - COMMENTED OUT)
+         * ============================================================
+         */
+        /*
+        if (drainMode.getValue() == DrainMode.Water) {
+
+            if (currentWater == null
+                    || !isWaterSource(currentWater)
+                    || !inRange(currentWater)) {
+
+                currentWater = findNearestWater();
+            }
+
+            if (currentWater != null) {
+
+                if (pickUpWater(currentWater))
+                    return;
+
+                currentWater = null;
+            }
+
+            return;
+        }
+        */
+
+        /*
+         * ============================================================
+         * COBWEB MODE
+         * ============================================================
+         */
+
+        if (drainMode.getValue() == DrainMode.Cobweb) {
+
+            if (currentWater == null
+                    || !isWaterSource(currentWater)
+                    || !inRange(currentWater)) {
+
+                currentWater = findNearestWater();
+            }
+
+            if (currentWater == null)
+                return;
+
+            if (currentCobwebPlacement == null) {
+                findCobwebPosition(currentWater);
+            }
+
+            if (currentCobwebPlacement != null) {
+
+                if (placeCobweb())
+                    return;
+
+                clearCobwebTarget();
+                currentWater = null;
+            }
+
             return;
         }
 
-        InventoryUtility.saveSlot();
-        if (pickupWater(currentWaterSource, emptyBucketSlot)) {
-            renderPoses.put(currentWaterSource, System.currentTimeMillis());
-            delay = placeDelay.getValue();
-            inactivityTimer.reset();
-            waterSources.remove(currentWaterSource);
-            currentWaterSource = null;
+        /*
+         * ============================================================
+         * BOTH MODE (DISABLED - COMMENTED OUT)
+         * ============================================================
+         */
+        /*
+        if (drainMode.getValue() == DrainMode.Both) {
+
+            if (currentWater == null
+                    || !isWaterSource(currentWater)
+                    || !inRange(currentWater)) {
+
+                currentWater = findNearestWater();
+            }
+
+            if (currentWater == null)
+                return;
+
+            if (prioritizeCobweb.getValue()) {
+
+                if (currentCobwebPlacement == null) {
+                    findCobwebPosition(currentWater);
+                }
+
+                if (currentCobwebPlacement != null) {
+
+                    if (placeCobweb())
+                        return;
+
+                    clearCobwebTarget();
+                }
+
+                if (pickUpWater(currentWater))
+                    return;
+
+                currentWater = null;
+
+                return;
+            }
+
+            if (hasEmptyBucket()) {
+
+                if (pickUpWater(currentWater))
+                    return;
+            }
+
+            if (currentCobwebPlacement == null) {
+                findCobwebPosition(currentWater);
+            }
+
+            if (currentCobwebPlacement != null) {
+
+                if (placeCobweb())
+                    return;
+
+                clearCobwebTarget();
+            }
+
+            currentWater = null;
         }
-        InventoryUtility.returnSlot();
+        */
     }
 
-    private boolean isWaterSourceStillValid(BlockPos pos) {
-        return mc.world.getBlockState(pos).getBlock() == Blocks.WATER && 
-               mc.world.getBlockState(pos).getFluidState().isStill();
-    }
+    /*
+     * ============================================================
+     * WATER
+     * ============================================================
+     */
 
-    private boolean pickupWater(BlockPos waterPos, int slot) {
-        mc.player.getInventory().selectedSlot = slot;
-        
-        Direction side = Direction.UP;
-        BlockHitResult hitResult = new BlockHitResult(
-            waterPos.toCenterPos(),
-            side,
-            waterPos,
-            false
+    private boolean pickUpWater(BlockPos pos) {
+
+        if (mc.player == null
+                || mc.world == null
+                || mc.interactionManager == null) {
+            return false;
+        }
+
+        /*
+         * Make sure this is actually a water source.
+         */
+        if (!isWaterSource(pos))
+            return false;
+
+        /*
+         * Make sure we're close enough.
+         */
+        if (!inRange(pos))
+            return false;
+
+        /*
+         * Find bucket.
+         */
+        int bucketSlot = getEmptyBucketSlot();
+
+        if (bucketSlot == -1)
+            return false;
+
+        /*
+         * Remember the current slot.
+         */
+        int previousSlot =
+                mc.player.getInventory().selectedSlot;
+
+        /*
+         * If we're already holding the bucket, don't switch.
+         */
+        if (previousSlot != bucketSlot) {
+
+            /*
+             * Change the client inventory slot.
+             */
+            mc.player.getInventory().selectedSlot =
+                    bucketSlot;
+
+            /*
+             * IMPORTANT:
+             *
+             * Explicitly tell the server that the selected
+             * slot changed.
+             */
+            mc.player.networkHandler.sendPacket(
+                    new UpdateSelectedSlotC2SPacket(bucketSlot)
+            );
+        }
+
+        /*
+         * Verify the client is holding a bucket.
+         */
+        ItemStack held =
+                mc.player.getMainHandStack();
+
+        if (held.isEmpty()
+                || held.getItem() != Items.BUCKET) {
+
+            /*
+             * Restore if necessary.
+             */
+            if (previousSlot != bucketSlot) {
+
+                mc.player.getInventory().selectedSlot =
+                        previousSlot;
+
+                mc.player.networkHandler.sendPacket(
+                        new UpdateSelectedSlotC2SPacket(previousSlot)
+                );
+            }
+
+            return false;
+        }
+
+        /*
+         * ========================================================
+         * WATER HIT
+         * ========================================================
+         *
+         * Use the center of the water source.
+         *
+         * A bucket needs to interact with the source block itself.
+         */
+        Vec3d waterCenter = new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        BlockHitResult hit =
+                new BlockHitResult(
+                        waterCenter,
+                        Direction.UP,
+                        pos,
+                        false
+                );
+
+        /*
+         * ========================================================
+         * ACTUAL BUCKET INTERACTION
+         * ========================================================
+         *
+         * Rotate to the water first, then interact.
+         */
+        float[] angle = InteractionUtility.calculateAngle(hit.getPos());
+        mc.player.networkHandler.sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(angle[0], angle[1], mc.player.isOnGround()));
+
+        mc.player.swingHand(Hand.MAIN_HAND);
+
+        InteractionUtility.sendSequencedPacket(id -> new PlayerInteractBlockC2SPacket(Hand.MAIN_HAND, hit, id));
+
+        /*
+         * Mark the source.
+         */
+        attempted.put(
+                pos.toImmutable(),
+                System.currentTimeMillis()
         );
-        
-        InteractionUtility.rightClickBlock(hitResult);
+
+        /*
+         * Clear target.
+         */
+        currentWater = null;
+
+        /*
+         * Wait for the server/world to process the interaction.
+         */
+        delay = Math.max(
+                1,
+                delaySetting.getValue()
+        );
+
+        inactivityTimer.reset();
+
+        /*
+         * IMPORTANT:
+         *
+         * DON'T immediately switch back.
+         *
+         * Keep the bucket selected until a later tick.
+         */
+        if (previousSlot != bucketSlot) {
+            pendingRestoreSlot = previousSlot;
+        }
+
         return true;
     }
 
-    private void handleWaterPlacement(BlockPos pos) {
-        int waterBucketSlot = getWaterBucketSlot();
-        if (waterBucketSlot == -1) return;
+    /*
+     * Restore the slot from a previous interaction.
+     */
+    private void restorePendingSlot() {
 
-        InventoryUtility.saveSlot();
-        if (InteractionUtility.placeBlock(pos, rotate.getValue(), interact.getValue(), placeMode.getValue(), waterBucketSlot, false, true)) {
-            renderPoses.put(pos, System.currentTimeMillis());
-            delay = placeDelay.getValue();
-            inactivityTimer.reset();
-        }
-        InventoryUtility.returnSlot();
-    }
+        if (mc.player == null)
+            return;
 
-    private void handleCobwebPlace() {
-        BlockPos targetBlock = getSequentialPos();
-        if (targetBlock == null) return;
+        if (pendingRestoreSlot < 0)
+            return;
 
-        if (delay > 0) {
-            delay--;
+        if (pendingRestoreSlot > 8) {
+            pendingRestoreSlot = -1;
             return;
         }
 
-        BlockPos nearestWater = getNearestWaterSource();
-        if (nearestWater != null && mc.player.squaredDistanceTo(nearestWater.getX() + 0.5, nearestWater.getY() + 0.5, nearestWater.getZ() + 0.5) < range.getValue() * range.getValue()) {
-            InventoryUtility.saveSlot();
-            if (InteractionUtility.placeBlock(nearestWater, rotate.getValue(), interact.getValue(), placeMode.getValue(), getSlot(), false, true)) {
-                renderPoses.put(nearestWater, System.currentTimeMillis());
-                delay = placeDelay.getValue();
-                inactivityTimer.reset();
-                waterSources.remove(nearestWater);
-            }
-            InventoryUtility.returnSlot();
-        } else {
-            InventoryUtility.saveSlot();
-            if (placeTiming.getValue() == PlaceTiming.Default) {
-                int placed = 0;
-                while (placed < blocksPerTick.getValue()) {
-                    BlockPos blockPos = getSequentialPos();
-                    if (blockPos == null) break;
+        mc.player.getInventory().selectedSlot =
+                pendingRestoreSlot;
 
-                    if (InteractionUtility.placeBlock(blockPos, rotate.getValue(), interact.getValue(), placeMode.getValue(), getSlot(), false, true)) {
-                        placed++;
-                        renderPoses.put(blockPos, System.currentTimeMillis());
-                        delay = placeDelay.getValue();
-                        inactivityTimer.reset();
-                    } else break;
-                }
-            } else if (placeTiming.getValue() == PlaceTiming.Vanilla) {
-                if (InteractionUtility.placeBlock(targetBlock, rotate.getValue(), interact.getValue(), placeMode.getValue(), getSlot(), false, true)) {
-                    sequentialBlocks.add(targetBlock);
-                    renderPoses.put(targetBlock, System.currentTimeMillis());
-                    delay = placeDelay.getValue();
-                    inactivityTimer.reset();
-                }
-            }
-            InventoryUtility.returnSlot();
-        }
+        mc.player.networkHandler.sendPacket(
+                new UpdateSelectedSlotC2SPacket(
+                        pendingRestoreSlot
+                )
+        );
+
+        pendingRestoreSlot = -1;
     }
 
-    private BlockPos getSequentialPos() {
-        if (target == null) return null;
+    /*
+     * Find bucket in hotbar.
+     */
+    private int getEmptyBucketSlot() {
 
-        BlockPos targetBp = BlockPos.ofFloored(target.getPos());
+        if (mc.player == null)
+            return -1;
 
-        ArrayList<BlockPos> positions = new ArrayList<>();
-        if (leggs.getValue())
-            positions.add(targetBp);
+        for (int i = 0; i < 9; i++) {
 
-        if (head.getValue())
-            positions.add(targetBp.up());
+            ItemStack stack =
+                    mc.player.getInventory().getStack(i);
 
-        if (surround.getValue()) {
-            positions.add(targetBp.east());
-            positions.add(targetBp.west());
-            positions.add(targetBp.south());
-            positions.add(targetBp.north());
-        }
+            if (!stack.isEmpty()
+                    && stack.getItem() == Items.BUCKET) {
 
-        if (upperSurround.getValue()) {
-            positions.add(targetBp.east().up());
-            positions.add(targetBp.west().up());
-            positions.add(targetBp.south().up());
-            positions.add(targetBp.north().up());
-        }
-
-        for (BlockPos bp : positions) {
-            BlockHitResult wallCheck = mc.world.raycast(new RaycastContext(InteractionUtility.getEyesPos(mc.player), bp.toCenterPos().offset(Direction.UP, 0.5f), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, mc.player));
-            if (wallCheck != null && wallCheck.getType() == HitResult.Type.BLOCK && wallCheck.getBlockPos() != bp)
-                if (squaredDistanceFromEyes(bp.toCenterPos()) > placeWallRange.getPow2Value()) continue;
-            if (InteractionUtility.canPlaceBlock(bp, interact.getValue(), true) && mc.world.getBlockState(bp).isReplaceable()) {
-                return bp;
+                return i;
             }
         }
 
-        return null;
+        return -1;
     }
 
-    private int getSlot() {
-        List<Block> canUseBlocks = new ArrayList<>();
-        
+    private boolean hasEmptyBucket() {
+        return getEmptyBucketSlot() != -1;
+    }
+
+    /*
+     * Check for an actual STILL water source.
+     */
+    private boolean isWaterSource(BlockPos pos) {
+
+        if (pos == null || mc.world == null)
+            return false;
+
+        BlockState state =
+                mc.world.getBlockState(pos);
+
+        if (state.getBlock() != Blocks.WATER)
+            return false;
+
+        return state.getFluidState().isStill();
+    }
+
+    /*
+     * ============================================================
+     * COBWEB
+     * ============================================================
+     */
+
+    private void findCobwebPosition(BlockPos water) {
+
+        if (mc.world == null || mc.player == null)
+            return;
+
+        if (water == null)
+            return;
+
+        Direction[] directions = {
+                Direction.NORTH,
+                Direction.SOUTH,
+                Direction.WEST,
+                Direction.EAST,
+                Direction.UP,
+                Direction.DOWN
+        };
+
+        for (Direction direction : directions) {
+
+            BlockPos placePos =
+                    water.offset(direction);
+
+            if (!inRange(placePos))
+                continue;
+
+            if (!canPlaceCobwebAt(placePos))
+                continue;
+
+            if (!isValidSupportBlock(water))
+                continue;
+
+            if (recentlyAttempted(placePos))
+                continue;
+
+            currentCobwebPlacement =
+                    placePos.toImmutable();
+
+            cobwebSupport =
+                    water.toImmutable();
+
+            cobwebFace =
+                    direction;
+
+            return;
+        }
+
+        clearCobwebTarget();
+    }
+
+    private boolean canPlaceCobwebAt(BlockPos pos) {
+
+        if (mc.world == null)
+            return false;
+
+        BlockState state =
+                mc.world.getBlockState(pos);
+
+        if (state.getBlock() == Blocks.COBWEB)
+            return false;
+
+        return state.isReplaceable();
+    }
+
+    private boolean isValidSupportBlock(BlockPos pos) {
+
+        if (mc.world == null)
+            return false;
+
+        BlockState state =
+                mc.world.getBlockState(pos);
+
+        /*
+         * Water source is allowed as the support.
+         */
+        if (state.getBlock() == Blocks.WATER) {
+            return state.getFluidState().isStill();
+        }
+
+        if (state.isAir())
+            return false;
+
+        return !state.isReplaceable();
+    }
+
+    private int getCobwebSlot() {
+
+        if (mc.player == null)
+            return -1;
+
+        ItemStack main =
+                mc.player.getMainHandStack();
+
+        if (!main.isEmpty()
+                && main.getItem() == Items.COBWEB) {
+
+            return mc.player.getInventory().selectedSlot;
+        }
+
+        for (int i = 0; i < 9; i++) {
+
+            ItemStack stack =
+                    mc.player.getInventory().getStack(i);
+
+            if (!stack.isEmpty()
+                    && stack.getItem() == Items.COBWEB) {
+
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private boolean placeCobweb() {
+
+        if (mc.player == null
+                || mc.world == null
+                || mc.interactionManager == null) {
+            return false;
+        }
+
+        if (currentCobwebPlacement == null)
+            return false;
+
+        if (cobwebSupport == null)
+            return false;
+
+        if (cobwebFace == null)
+            return false;
+
+        if (!canPlaceCobwebAt(currentCobwebPlacement)) {
+            clearCobwebTarget();
+            return false;
+        }
+
+        if (!isValidSupportBlock(cobwebSupport)) {
+            clearCobwebTarget();
+            return false;
+        }
+
+        int cobwebSlot =
+                getCobwebSlot();
+
+        if (cobwebSlot == -1)
+            return false;
+
+        int previousSlot =
+                mc.player.getInventory().selectedSlot;
+
+        /*
+         * Use the normal inventory utility for cobwebs.
+         */
+        InventoryUtility.switchTo(cobwebSlot);
+
+        ItemStack held =
+                mc.player.getMainHandStack();
+
+        if (held.isEmpty()
+                || held.getItem() != Items.COBWEB) {
+
+            InventoryUtility.switchTo(previousSlot);
+            return false;
+        }
+
+        double x =
+                cobwebSupport.getX()
+                        + 0.5
+                        + cobwebFace.getOffsetX() * 0.5;
+
+        double y =
+                cobwebSupport.getY()
+                        + 0.5
+                        + cobwebFace.getOffsetY() * 0.5;
+
+        double z =
+                cobwebSupport.getZ()
+                        + 0.5
+                        + cobwebFace.getOffsetZ() * 0.5;
+
+        BlockHitResult hit =
+                new BlockHitResult(
+                        new Vec3d(x, y, z),
+                        cobwebFace,
+                        cobwebSupport,
+                        false
+                );
+
+        /*
+         * Place cobweb normally.
+         */
+        mc.interactionManager.interactBlock(
+                mc.player,
+                Hand.MAIN_HAND,
+                hit
+        );
+
+        mc.player.swingHand(Hand.MAIN_HAND);
+
+        attempted.put(
+                currentCobwebPlacement.toImmutable(),
+                System.currentTimeMillis()
+        );
+
+        delay = Math.max(
+                1,
+                delaySetting.getValue()
+        );
+
+        inactivityTimer.reset();
+
+        clearCobwebTarget();
+
         if (drainMode.getValue() == DrainMode.Cobweb) {
-            canUseBlocks.add(Blocks.COBWEB);
-        } else if (drainMode.getValue() == DrainMode.WaterBucket) {
-            return getWaterBucketSlot();
+            currentWater = null;
         }
-        
-        int slot = -1;
-        final ItemStack mainhandStack = mc.player.getMainHandStack();
-        if (mainhandStack != ItemStack.EMPTY && mainhandStack.getItem() instanceof BlockItem) {
-            final Block blockFromMainhandItem = ((BlockItem) mainhandStack.getItem()).getBlock();
-            if (canUseBlocks.contains(blockFromMainhandItem)) {
-                slot = mc.player.getInventory().selectedSlot;
-            }
-        }
-        if (slot == -1) {
-            for (int i = 0; i < 9; i++) {
-                final ItemStack stack = mc.player.getInventory().getStack(i);
-                if (stack != ItemStack.EMPTY && stack.getItem() instanceof BlockItem) {
-                    final Block blockFromItem = ((BlockItem) stack.getItem()).getBlock();
-                    if (canUseBlocks.contains(blockFromItem)) {
-                        slot = i;
-                        break;
+
+        InventoryUtility.switchTo(previousSlot);
+
+        return true;
+    }
+
+    private void clearCobwebTarget() {
+
+        currentCobwebPlacement = null;
+        cobwebSupport = null;
+        cobwebFace = null;
+    }
+
+    /*
+     * ============================================================
+     * WATER SEARCH
+     * ============================================================
+     */
+
+    private void findWater() {
+        currentWater = findNearestWater();
+    }
+
+    private BlockPos findNearestWater() {
+
+        if (mc.player == null || mc.world == null)
+            return null;
+
+        int radius =
+                searchRadius.getValue();
+
+        BlockPos playerPos =
+                mc.player.getBlockPos();
+
+        BlockPos nearest = null;
+
+        double nearestDistance =
+                Double.MAX_VALUE;
+
+        for (int x = -radius; x <= radius; x++) {
+
+            for (int y = -radius; y <= radius; y++) {
+
+                for (int z = -radius; z <= radius; z++) {
+
+                    BlockPos pos =
+                            playerPos.add(x, y, z);
+
+                    if (!isWaterSource(pos))
+                        continue;
+
+                    if (!inRange(pos))
+                        continue;
+
+                    if (recentlyAttempted(pos))
+                        continue;
+
+                    double distance =
+                            mc.player.squaredDistanceTo(
+                                    pos.getX() + 0.5,
+                                    pos.getY() + 0.5,
+                                    pos.getZ() + 0.5
+                            );
+
+                    if (distance < nearestDistance) {
+
+                        nearestDistance = distance;
+                        nearest = pos.toImmutable();
                     }
                 }
             }
         }
-        return slot;
+
+        return nearest;
     }
 
-    private int getWaterBucketSlot() {
-        int slot = -1;
-        final ItemStack mainhandStack = mc.player.getMainHandStack();
-        if (mainhandStack != ItemStack.EMPTY && mainhandStack.getItem() == Items.WATER_BUCKET) {
-            slot = mc.player.getInventory().selectedSlot;
-        }
-        if (slot == -1) {
-            for (int i = 0; i < 9; i++) {
-                final ItemStack stack = mc.player.getInventory().getStack(i);
-                if (stack != ItemStack.EMPTY && stack.getItem() == Items.WATER_BUCKET) {
-                    slot = i;
-                    break;
-                }
-            }
-        }
-        return slot;
+    /*
+     * ============================================================
+     * HELPERS
+     * ============================================================
+     */
+
+    private boolean inRange(BlockPos pos) {
+
+        if (mc.player == null || pos == null)
+            return false;
+
+        double distance =
+                mc.player.squaredDistanceTo(
+                        pos.getX() + 0.5,
+                        pos.getY() + 0.5,
+                        pos.getZ() + 0.5
+                );
+
+        double max =
+                range.getValue();
+
+        return distance <= max * max;
     }
 
-    private int getEmptyBucketSlot() {
-        int slot = -1;
-        final ItemStack mainhandStack = mc.player.getMainHandStack();
-        if (mainhandStack != ItemStack.EMPTY && mainhandStack.getItem() == Items.BUCKET) {
-            slot = mc.player.getInventory().selectedSlot;
+    private boolean recentlyAttempted(BlockPos pos) {
+
+        if (pos == null)
+            return false;
+
+        Long timestamp =
+                attempted.get(pos);
+
+        if (timestamp == null)
+            return false;
+
+        /*
+         * If the source is gone, forget it.
+         */
+        if (!isWaterSource(pos)) {
+
+            attempted.remove(pos);
+            return false;
         }
-        if (slot == -1) {
-            for (int i = 0; i < 9; i++) {
-                final ItemStack stack = mc.player.getInventory().getStack(i);
-                if (stack != ItemStack.EMPTY && stack.getItem() == Items.BUCKET) {
-                    slot = i;
-                    break;
-                }
-            }
+
+        if (System.currentTimeMillis() - timestamp > 750) {
+
+            attempted.remove(pos);
+            return false;
         }
-        return slot;
+
+        return true;
     }
 
-    private enum PlaceTiming {
-        Default, Vanilla
+    private void cleanupAttempted() {
+
+        long now =
+                System.currentTimeMillis();
+
+        attempted.entrySet().removeIf(
+                entry ->
+                        now - entry.getValue() > 2000
+        );
     }
 
-    private enum RenderMode {
-        Fade, Decrease
+    /*
+     * ============================================================
+     * RENDER
+     * ============================================================
+     */
+
+    public void onRender3D(DrawContext context) {
+        cleanupAttempted();
     }
+
+    /*
+     * ============================================================
+     * MODE
+     * ============================================================
+     */
 
     private enum DrainMode {
-        Cobweb, WaterBucket
+        Cobweb
     }
 }

@@ -37,7 +37,7 @@ public class MixinPlayerEntity {
 
     @Inject(method = "getDisplayName", at = @At("HEAD"), cancellable = true)
     public void getDisplayNameHook(CallbackInfoReturnable<Text> cir) {
-        if (ModuleManager.media.isEnabled() && Media.nickProtect.getValue()) {
+       if (false) { // if (ModuleManager.media.isEnabled() && Media.nickProtect.getValue()) {
             cir.setReturnValue(Text.of("Protected"));
         }
     }
