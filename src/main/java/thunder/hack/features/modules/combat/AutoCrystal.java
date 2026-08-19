@@ -69,6 +69,10 @@ public class AutoCrystal extends Module {
     private final Setting<Timing> timing = new Setting<>("Timing", Timing.NORMAL, v -> page.is(Pages.Main));
     private final Setting<Sequential> sequential = new Setting<>("Sequential", Sequential.Strong, v -> page.is(Pages.Main));
     private final Setting<Rotation> rotate = new Setting<>("Rotate", Rotation.CC, v -> page.is(Pages.Main));
+    
+    // NEW: Server-side rotation mode (like Aura's Grim mode)
+    private final Setting<Boolean> serverSideRotate = new Setting<>("ServerSideRotate", false, v -> !rotate.is(Rotation.OFF) && page.is(Pages.Main));
+    
     private final Setting<BooleanSettingGroup> yawStep = new Setting<>("YawStep", new BooleanSettingGroup(false), v -> !rotate.is(Rotation.OFF) && page.is(Pages.Main));
     private final Setting<Float> yawAngle = new Setting<>("YawAngle", 180.0f, 1.0f, 180.0f, v -> !rotate.is(Rotation.OFF) && page.is(Pages.Main)).addToGroup(yawStep);
     private final Setting<CombatManager.TargetBy> targetLogic = new Setting<>("TargetLogic", CombatManager.TargetBy.Distance, v -> page.is(Pages.Main));
@@ -125,7 +129,7 @@ public class AutoCrystal extends Module {
     private final Setting<Switch> autoSwitch = new Setting<>("Switch", Switch.NORMAL, v -> page.is(Pages.Switch));
     private final Setting<Switch> antiWeakness = new Setting<>("AntiWeakness", Switch.SILENT, v -> page.is(Pages.Switch));
 
-    /*   FAILSAFE   */ // Temp
+    /*   FAILSAFE   */
     public final Setting<Boolean> placeFailsafe = new Setting<>("PlaceFailsafe", true, v -> page.is(Pages.FailSafe));
     public final Setting<Boolean> breakFailsafe = new Setting<>("BreakFailsafe", true, v -> page.is(Pages.FailSafe));
     public final Setting<Integer> attempts = new Setting<>("MaxAttempts", 5, 1, 30, v -> page.is(Pages.FailSafe));
@@ -203,11 +207,20 @@ public class AutoCrystal extends Module {
     @Override
     public void onEnable() {
         resetVars();
+        // Initialize rotation values
+        if (mc.player != null) {
+            rotationYaw = mc.player.getYaw();
+            rotationPitch = mc.player.getPitch();
+        }
     }
 
     @Override
     public void onDisable() {
         resetVars();
+        // Reset player rotation if server-side rotation was enabled
+        if (serverSideRotate.getValue() && mc.player != null) {
+            sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), mc.player.getYaw(), mc.player.getPitch(), mc.player.isOnGround()));
+        }
     }
 
     private void resetVars() {
@@ -260,15 +273,21 @@ public class AutoCrystal extends Module {
             invTimer = 0;
         }
 
+        // MODIFIED: Server-side rotation handling
         if (!rotate.is(Rotation.OFF) && mc.player != null && rotating) {
+            if (serverSideRotate.getValue()) {
+                // Server-side only - send rotation packets without changing client view
+                sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), rotationYaw, rotationPitch, mc.player.isOnGround()));
+            } else {
+                // Normal client-side rotation
+                boolean hitVisible = bestCrystal == null || PlayerUtility.canSee(bestCrystal.getPos());
+                boolean placeVisible = bestPosition == null || PlayerUtility.canSee(bestPosition.getPos());
 
-            boolean hitVisible = bestCrystal == null || PlayerUtility.canSee(bestCrystal.getPos());
-            boolean placeVisible = bestPosition == null || PlayerUtility.canSee(bestPosition.getPos());
-
-            if (mc.player.age % 5 == 0 && rayTraceBypass.getValue() && (!hitVisible || !placeVisible))
-                mc.player.setPitch(-90);
-            else mc.player.setPitch(rotationPitch);
-            mc.player.setYaw(rotationYaw);
+                if (mc.player.age % 5 == 0 && rayTraceBypass.getValue() && (!hitVisible || !placeVisible))
+                    mc.player.setPitch(-90);
+                else mc.player.setPitch(rotationPitch);
+                mc.player.setYaw(rotationYaw);
+            }
         }
     }
 
@@ -293,12 +312,12 @@ public class AutoCrystal extends Module {
         if (sequential.is(Sequential.Off) || rotate.is(Rotation.MATRIX)) {
             if (bestCrystal != null && breakTimer.passedTicks(facePlacing ? lowBreakDelay.getValue() : breakDelay.getValue()))
                 attackCrystal(bestCrystal);
-            else if (bestPosition != null && placeTimer.passedTicks(facePlacing ? lowPlaceDelay.getValue() : placeDelay.getValue()) && !placedOnSpawn /*&& placeSyncTimer.passedTicks(3)*/)
+            else if (bestPosition != null && placeTimer.passedTicks(facePlacing ? lowPlaceDelay.getValue() : placeDelay.getValue()) && !placedOnSpawn)
                 placeCrystal(bestPosition, false, false);
         } else {
             if (bestCrystal != null && breakTimer.passedTicks(facePlacing ? lowBreakDelay.getValue() : breakDelay.getValue()))
                 attackCrystal(bestCrystal);
-            if (bestPosition != null && placeTimer.passedTicks(facePlacing ? lowPlaceDelay.getValue() : placeDelay.getValue()) && !placedOnSpawn /*&& placeSyncTimer.passedTicks(3)*/)
+            if (bestPosition != null && placeTimer.passedTicks(facePlacing ? lowPlaceDelay.getValue() : placeDelay.getValue()) && !placedOnSpawn)
                 placeCrystal(bestPosition, false, false);
         }
         placedOnSpawn = false;
@@ -384,16 +403,10 @@ public class AutoCrystal extends Module {
                 return;
             }
 
-            // Shitty NCP (cc) OK
-            // Updated NCP (mio test server, constantiam prob) OK
-            // Shitty Matrix (forcemine) OK
-            // Grim (mio test server) OK
-
             Vec3d vec = !rotate.getValue().needSeparate() ? (bestPosition == null ? bestCrystal.getPos() : rotate.getValue().getVector(bestPosition)) : (rotationVec.hitVec() == null ? rotationVec.vec() : rotate.getValue().getVector(rotationVec.hitVec()));
 
             float yawDelta = wrapDegrees((float) wrapDegrees(Math.toDegrees(Math.atan2(vec.z - mc.player.getZ(), (vec.x - mc.player.getX()))) - 90) - rotationYaw);
             float pitchDelta = ((float) (-Math.toDegrees(Math.atan2(vec.y - (mc.player.getPos().y + mc.player.getEyeHeight(mc.player.getPose())), Math.sqrt(Math.pow((vec.x - mc.player.getX()), 2) + Math.pow(vec.z - mc.player.getZ(), 2))))) - rotationPitch);
-
 
             float angleToRad = (float) Math.toRadians(27 * (mc.player.age % 30));
             yawDelta = (float) (yawDelta + Math.sin(angleToRad) * 3) + MathUtility.random(-1f, 1f);
@@ -591,8 +604,18 @@ public class AutoCrystal extends Module {
             if (weaknessEffect != null && (strengthEffect == null || strengthEffect.getAmplifier() < weaknessEffect.getAmplifier()))
                 prevSlot = switchTo(antiWeaknessResult, antiWeaknessResultInv, antiWeakness);
 
+        // MODIFIED: Send rotation packet before attack if server-side rotation is enabled
+        if (serverSideRotate.getValue()) {
+            sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), rotationYaw, rotationPitch, mc.player.isOnGround()));
+        }
+
         sendPacket(PlayerInteractEntityC2SPacket.attack(crystal, mc.player.isSneaking()));
         swingHand(false, true);
+
+        // MODIFIED: Send rotation packet after attack to reset if server-side rotation is enabled
+        if (serverSideRotate.getValue()) {
+            sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), mc.player.getYaw(), mc.player.getPitch(), mc.player.isOnGround()));
+        }
 
         if (rotate.getValue().needSeparate() && !Managers.PLAYER.checkRtx(rotationYaw, rotationPitch, explodeRange.getValue(), explodeWallRange.getValue(), crystal))
             rotationVec = new RotationVec(crystal.getBoundingBox().getCenter(), null, false);
@@ -607,10 +630,6 @@ public class AutoCrystal extends Module {
             if (ent instanceof EndCrystalEntity exCrystal && exCrystal.squaredDistanceTo(crystal.getX(), crystal.getY(), crystal.getZ()) <= 144 && !crystalManager.isDead(exCrystal.getId())) {
                 crystalManager.setDead(exCrystal.getId(), System.currentTimeMillis());
             }
-
-            //  if (ent instanceof ItemEntity && ent.squaredDistanceTo(crystal.getX(), crystal.getY(), crystal.getZ()) <= 144) {
-            //       sendMessage("item detected");
-            //    }
         }
 
         if (prevSlot != -1) {
@@ -667,8 +686,7 @@ public class AutoCrystal extends Module {
             }
             case NORMAL -> result.switchTo();
             case SILENT -> result.switchToSilent();
-            case NONE -> {
-            }
+            case NONE -> {}
         }
         return prevSlot;
     }
@@ -688,10 +706,9 @@ public class AutoCrystal extends Module {
             if (packetRotate) {
                 float[] angle = InteractionUtility.calculateAngle(bhr.getPos());
                 sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), angle[0], angle[1], mc.player.isOnGround()));
-            } else if (!rotated && !rotate.getValue().needSeparate()) // TODO check ray trace
+            } else if (!rotated && !rotate.getValue().needSeparate())
                 return;
         }
-
 
         if (isPositionBlockedByEntity(bhr.getBlockPos(), false)) return;
 
@@ -701,8 +718,18 @@ public class AutoCrystal extends Module {
         if (!(mc.player.getMainHandStack().getItem() instanceof EndCrystalItem || offhand || autoSwitch.getValue() == Switch.SILENT))
             return;
 
+        // MODIFIED: Send rotation packet before place if server-side rotation is enabled
+        if (serverSideRotate.getValue()) {
+            sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), rotationYaw, rotationPitch, mc.player.isOnGround()));
+        }
+
         sendSequencedPacket(id -> new PlayerInteractBlockC2SPacket(offhand ? Hand.OFF_HAND : Hand.MAIN_HAND, bhr, id));
         swingHand(offhand, false);
+
+        // MODIFIED: Send rotation packet after place to reset if server-side rotation is enabled
+        if (serverSideRotate.getValue()) {
+            sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), mc.player.getYaw(), mc.player.getPitch(), mc.player.isOnGround()));
+        }
 
         if (breakTimer.passedTicks(breakDelay.getValue()) && idPredict.getValue() && (!idPredictOnlyDuels.getValue() || mc.world.getWorldBorder().getSize() == 100))
             predictAttack();
@@ -829,8 +856,7 @@ public class AutoCrystal extends Module {
         if (secondaryCrystal != null) {
             if (canAttackCrystal(secondaryCrystal)) {
                 bestCrystal = secondaryCrystal;
-                debug("secondary crystal accepted");
-            } else debug("secondary crystal declined");
+            }
             secondaryCrystal = null;
             return;
         }
@@ -1012,7 +1038,6 @@ public class AutoCrystal extends Module {
                     } else {
                         if (cr.getPos().squaredDistanceTo(box.getCenter()) > 0.3) {
                             secondaryCrystal = cr;
-                            debug("secondary crystal created");
                         }
                     }
                 }
@@ -1177,16 +1202,10 @@ public class AutoCrystal extends Module {
     }
 
     private int getPredictTicks() {
-        // TODO smart
         return extrapolation.getValue();
     }
 
     private int getSelfPredictTicks() {
-        // TESSSSSSSSSST
-
-        // * 1.5 because after the calculation we will receive a response from the server in the form of a crystal appearing via ping,
-        // and then our attack will reach the server via ping / 2
-
         return (int) Math.ceil(((float) Managers.SERVER.getPing() * 1.5f) / 50f);
     }
 

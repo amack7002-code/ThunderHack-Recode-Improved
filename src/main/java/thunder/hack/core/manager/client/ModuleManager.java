@@ -13,7 +13,6 @@ import thunder.hack.features.modules.Module;
 import thunder.hack.features.modules.client.*;
 import thunder.hack.features.modules.combat.*;
 import thunder.hack.features.modules.misc.*;
-import thunder.hack.features.modules.movement.Timer;
 import thunder.hack.features.modules.movement.*;
 import thunder.hack.features.modules.player.*;
 import thunder.hack.features.modules.render.Particles;
@@ -21,8 +20,9 @@ import thunder.hack.features.modules.render.*;
 
 import java.lang.reflect.Field;
 import java.util.*;
-import java.util.List;
 import java.util.stream.Collectors;
+
+import javax.print.attribute.standard.Media;
 
 @SuppressWarnings("unused")
 public class ModuleManager implements IManager {
@@ -163,6 +163,7 @@ public class ModuleManager implements IManager {
     public static MemoryHud memoryHud = new MemoryHud();
     public static Companion companion = new Companion();
     public static AntiCrash antiCrash = new AntiCrash();
+    public static AutoDrain autoDrain = new AutoDrain();
     public static AutoGear autoGear = new AutoGear();
     public static ViewLock viewLock = new ViewLock();
     public static Velocity velocity = new Velocity();
