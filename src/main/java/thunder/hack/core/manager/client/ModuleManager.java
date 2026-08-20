@@ -195,6 +195,7 @@ public class ModuleManager implements IManager {
     public static AutoSign autoSign = new AutoSign();
     public static BlockESP blockESP = new BlockESP();
     public static SafeWalk safeWalk = new SafeWalk();
+    public static MaceSwap maceSwap = new MaceSwap();
     public static Windows windows = new Windows();
     public static Breaker breaker = new Breaker();
     public static AutoEat autoEat = new AutoEat();
