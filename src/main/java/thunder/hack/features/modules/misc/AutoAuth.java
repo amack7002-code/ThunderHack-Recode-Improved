@@ -62,7 +62,7 @@ public final class AutoAuth extends Module {
                 mc.getNetworkHandler().sendChatCommand("reg " + password + " " + password);
                 if (show.getValue()) sendMessage((isRu() ? "Твой пароль: " : "Your password: ") + Formatting.RED + password);
                 Managers.NOTIFICATION.publicity("AutoAuth", isRu() ? "Выполнена регистрация!" : "Registration completed!", 4, Notification.Type.SUCCESS);
-            } else if (m.contains("авторизуйтесь") || m.contains("/l")) {
+            } else if (m.contains("авторизуйтесь") || m.contains("/l") || m.contains("/Login")) {
                 mc.getNetworkHandler().sendChatCommand("login " + password);
                 Managers.NOTIFICATION.publicity("AutoAuth", isRu() ? "Выполнен вход!" : "Logged in!", 4, Notification.Type.SUCCESS);
             }

@@ -22,7 +22,7 @@ public final class AutoEZ extends Module {
     public static ArrayList<String> EZWORDS = new ArrayList<>();
     public Setting<Boolean> global = new Setting<>("global", true);
 
-    String[] EZ = new String[]{
+    String[] EZRussian = new String[]{
             "%player% АНБРЕЙН ГЕТАЙ ТХ РЕКОД",
             "%player% ТВОЯ МАТЬ БУДЕТ СЛЕДУЮЩЕЙ))))",
             "%player% БИЧАРА БЕЗ ТХ",
@@ -34,6 +34,20 @@ public final class AutoEZ extends Module {
             "%player% БОЖЕ МНЕ ТЕБЯ ЖАЛКО ВГЕТАЙ ТХ",
             "%player% ОПРАВДЫВАЙСЯ В ХУЙ ЧЕ СДОХ ТО)))",
             "%player% СПС ЗА ОТСОС)))"
+    };
+
+    String[] EZEnglish = new String[]{
+            "%player% UNBRAIN, GET TH, RECORD IT",
+            "%player% YOUR MOM'S NEXT",
+            "%player% BROKE-ASS LOSER WITH NO TH",
+            "%player% WHY'D YOU FOLD SO FAST, HUH?",
+            "%player% CRY",
+            "%player% OOPS FORGOT TO TURN OFF THE KILLSWITCH",
+            "SINGLE-CELLED ORGANISM %player% GOT WRECKED",
+            "%player% EZ AS FUCK AHAHAHAHAHAHAH",
+            "%player% GOD I PITY YOU, GET TH",
+            "%player% SAVE YOUR EXCUSES, WHY'D YOU DIE ANYWAY?",
+            "%player% THX FOR THE BLOWJOB"
     };
 
     private final Setting<ModeEn> mode = new Setting<>("Mode", ModeEn.Basic);
@@ -103,20 +117,7 @@ public final class AutoEZ extends Module {
                 String name = ThunderUtility.solveName(packet.content().getString());
                 if (Objects.equals(name, "FATAL ERROR")) return;
 
-                String finalword;
-                if (mode.getValue() == ModeEn.Basic) {
-                    int n;
-                    n = (int) Math.floor(Math.random() * EZ.length);
-                    finalword = EZ[n].replace("%player%", name);
-                } else {
-                    if (EZWORDS.isEmpty()) {
-                        sendMessage(isRu() ? "Файл с AutoEZ пустой!" : "AutoEZ.txt is empty!");
-                        return;
-                    }
-                    finalword = EZWORDS.get(new Random().nextInt(EZWORDS.size()));
-                    finalword = finalword.replaceAll("%player%", name);
-                }
-                mc.player.networkHandler.sendChatMessage(global.getValue() ? "!" + finalword : finalword);
+                sayEZ(name);
             }
         }
     }
@@ -135,8 +136,8 @@ public final class AutoEZ extends Module {
     public void sayEZ(String pn) {
         String finalword;
         if (mode.getValue() == ModeEn.Basic) {
-            int n;
-            n = (int) Math.floor(Math.random() * EZ.length);
+            String[] EZ = isRu() ? EZRussian : EZEnglish;
+            int n = (int) Math.floor(Math.random() * EZ.length);
             finalword = EZ[n].replace("%player%", pn);
         } else {
             if (EZWORDS.isEmpty()) {

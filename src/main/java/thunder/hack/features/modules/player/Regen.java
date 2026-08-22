@@ -1,3 +1,4 @@
+/*
 package thunder.hack.features.modules.player;
 
 import meteordevelopment.orbit.EventHandler;
@@ -22,3 +23,5 @@ public class Regen extends Module {
                 sendPacket(new PlayerMoveC2SPacket.Full(mc.player.getX(), mc.player.getY(), mc.player.getZ(), mc.player.getYaw(), mc.player.getPitch(), mc.player.isOnGround()));
     }
 }
+
+*/

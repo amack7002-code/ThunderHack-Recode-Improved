@@ -244,7 +244,7 @@ public class ModuleManager implements IManager {
     public static UnHook unHook = new UnHook();
     public static Avoid avoid = new Avoid();
     public static thunder.hack.features.modules.movement.Timer timer = new thunder.hack.features.modules.movement.Timer();
-    public static Regen regen = new Regen();
+    // public static Regen regen = new Regen();
     public static Speed speed = new Speed();
     public static Reach reach = new Reach();
     public static Radar radar = new Radar();
@@ -266,6 +266,8 @@ public class ModuleManager implements IManager {
     public static PastedPaperDupe paperdupe = new PastedPaperDupe();
     public static Religion religion = new Religion();
     public static Freeze freeze = new Freeze();
+    public static EasyText easyText = new EasyText();
+    public static AuraV2 auraV2 = new AuraV2();
 
     public ModuleManager() {
         for (Field field : getClass().getDeclaredFields()) {
